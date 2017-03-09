@@ -57,7 +57,6 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="KeyHookManager.cs" />
     <Compile Include="WindowsService.cs" />
     <Compile Include="WindowsServiceInstaller.cs" />
   </ItemGroup>

